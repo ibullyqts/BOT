@@ -11,10 +11,10 @@ MY_USERNAME = os.getenv("MY_USERNAME")
 MY_ID = str(os.getenv("MY_ID")) 
 
 # PASTE YOUR THREAD ID FROM THE URL LINK HERE
-# Example: If link is instagram.com/direct/t/12345/, put "12345"
-TARGET_GROUPS = ["1580227303119880"]
+# Example link: instagram.com/direct/t/3402823668...
+TARGET_GROUPS = ["340282366841710301281153074832756614682"]
 
-CHECK_SPEED = 12 # Slightly slower for better stability
+CHECK_SPEED = 12 
 # ========================================================
 
 cl = Client()
@@ -29,7 +29,15 @@ def login():
     try:
         cl.set_settings({"sessionid": SESSION_ID})
         cl.login_by_sessionid(SESSION_ID)
-        print(f"✅ BOT LIVE | Monitoring Thread IDs: {TARGET_GROUPS}")
+        print(f"✅ LOGIN SUCCESS | {cl.account_info().username}")
+        
+        # This part "Wakes Up" the specific threads from the link IDs
+        for t_id in TARGET_GROUPS:
+            try:
+                cl.direct_thread_by_id(t_id)
+                print(f"🔗 Thread {t_id} is Connected and Ready.")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not find thread {t_id}. Check the ID. {e}")
         return True
     except Exception as e:
         print(f"❌ LOGIN ERROR: {e}")
@@ -39,6 +47,7 @@ def send_msg(thread_id, text, reply_to_id=None):
     try:
         time.sleep(random.uniform(1, 2.5))
         cl.direct_send(text, thread_ids=[thread_id], reply_to_message_id=reply_to_id)
+        print(f"📤 Sent reply to {thread_id}")
     except Exception as e:
         print(f"⚠️ Message Send Failed: {e}")
 
@@ -48,8 +57,8 @@ def handle_commands(message):
     sender_id = str(message.user_id)
     text = (message.text or "").lower()
 
-    # Log incoming messages for debugging
-    print(f"📩 [{thread_id}] {sender_id}: {text}")
+    # LOGGING: See if the bot even "hears" the message
+    print(f"📩 [{thread_id}] Seen: {text}")
 
     # --- AUTO-SWIPE ---
     if swipe_active and sender_id == swipe_target_id:
@@ -66,7 +75,7 @@ def handle_commands(message):
             try:
                 swipe_target_id = str(cl.user_id_from_username(target_username))
                 swipe_active = True
-                send_msg(thread_id, f"🎯 Swiping @{target_username}")
+                send_msg(thread_id, f"🎯 Targeting @{target_username}")
             except: send_msg(thread_id, "❌ User not found")
 
     elif text == "/stopswipe":
@@ -74,14 +83,14 @@ def handle_commands(message):
         send_msg(thread_id, "✅ Swipe disabled.")
 
     elif text == "/ping":
-        send_msg(thread_id, "⚡ Bot is alive!")
+        send_msg(thread_id, "⚡ Bot is Online!")
 
 if __name__ == "__main__":
     if login():
         while True:
             try:
                 for t_id in TARGET_GROUPS:
-                    # Direct check for new messages in specific thread
+                    # Directly fetch 2 latest messages
                     msgs = cl.direct_messages(t_id, 2)
                     for m in msgs:
                         if m.id not in processed_msgs:
@@ -89,8 +98,8 @@ if __name__ == "__main__":
                             processed_msgs.add(m.id)
                 
                 if len(processed_msgs) > 200: processed_msgs.clear()
-                time.sleep(CHECK_SPEED + random.randint(1, 5))
+                time.sleep(CHECK_SPEED + random.randint(1, 4))
                 
             except Exception as e:
-                print(f"🔄 Cooling down... Error: {e}")
+                print(f"🔄 Loop Error: {e}")
                 time.sleep(60)
