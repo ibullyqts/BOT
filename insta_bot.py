@@ -11,10 +11,9 @@ MY_USERNAME = os.getenv("MY_USERNAME")
 MY_ID = str(os.getenv("MY_ID")) 
 
 # PASTE YOUR GROUP IDS HERE (Must be strings in the list)
-# Example: TARGET_GROUPS = ["340282366841710301281153074832756614682"]
-TARGET_GROUPS = ["1580227303119880", "PASTE_YOUR_ID_2_HERE"]
+TARGET_GROUPS = ["PASTE_YOUR_ID_HERE"]
 
-CHECK_SPEED = 10 # 10 seconds is very safe for direct thread scanning
+CHECK_SPEED = 10 
 # ========================================================
 
 cl = Client()
@@ -53,14 +52,11 @@ def handle_commands(message):
     sender_id = str(message.user_id)
     text = (message.text or "").lower()
 
-    # Log incoming messages to GitHub console
     print(f"📩 [{thread_id}] {sender_id}: {text}")
 
-    # --- AUTO-SWIPE LOGIC ---
     if swipe_active and sender_id == swipe_target_id:
         send_msg(thread_id, random.choice(swipe_messages), reply_to_id=message.id)
 
-    # --- ADMIN COMMANDS ---
     if sender_id != MY_ID: return
 
     if text.startswith("/swipe "):
@@ -86,8 +82,6 @@ if __name__ == "__main__":
         while True:
             try:
                 for thread_id in TARGET_GROUPS:
-                    # Directly fetch messages for the specific group ID
-                    # This bypasses the 'Inbox' scan entirely
                     msgs = cl.direct_messages(thread_id, 2)
                     for m in msgs:
                         if m.id not in processed_msgs:
@@ -96,9 +90,10 @@ if __name__ == "__main__":
                 
                 if len(processed_msgs) > 200: processed_msgs.clear()
                 
-                # Sleep between group checks
                 time.sleep(CHECK_SPEED + random.uniform(2, 5))
                 
             except Exception as e:
                 print(f"🔄 Direct Scan Warning: {e}")
-                time.sleep(6
+                time.sleep(60) # Line 104 fixed here
+    else:
+        print("‼️ Stop: Fix Login.")
