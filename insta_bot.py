@@ -10,12 +10,17 @@ SESSION_ID = os.getenv("SESSION_ID")
 MY_USERNAME = os.getenv("MY_USERNAME")
 MY_ID = os.getenv("MY_ID") 
 CHECK_SPEED = 2 
+AUTHORIZED_GROUPS = [] 
 # ========================================================
 
 cl = Client()
 cl.delay_range = [0, 1]
 
+# Global State
 auto_replies = {}
+swipe_active = False
+swipe_target_id = None
+swipe_messages = [] 
 spam_active = False
 start_time = datetime.now()
 msg_count = 0
@@ -30,135 +35,98 @@ def login():
         print(f"❌ Login Failed: {e}")
         exit()
 
-def send_msg(thread_id, text):
+def send_msg(thread_id, text, reply_to_id=None):
     global msg_count
     try:
-        cl.direct_send(text, thread_ids=[thread_id])
+        cl.direct_send(text, thread_ids=[thread_id], reply_to_message_id=reply_to_id)
         msg_count += 1
     except:
         pass
 
-def spam_logic(thread_id, target_user, msg):
-    global spam_active
-    while spam_active:
-        send_msg(thread_id, f"{target_user} {msg}")
-        time.sleep(1)
-
 def handle_commands(message):
-    global auto_replies, spam_active, start_time, msg_count
-    thread_id = message.thread_id
-    
-    # --- FIXED WELCOME & LEAVE DETECTION ---
-    if message.item_type == 'action_log':
-        event_data = getattr(message, 'event_context', {}) or getattr(message, 'extra_data', {})
-        
-        u_ids = event_data.get('added_user_ids') or event_data.get('user_ids', [])
-        if u_ids:
-            for u_id in u_ids:
-                try:
-                    user_info = cl.user_info_v1(u_id)
-                    send_msg(thread_id, f"Welcome @{user_info.username}! 🎉 Type /help for commands.")
-                except:
-                    send_msg(thread_id, "Welcome to the group! 🎉")
-        
-        elif 'removed_user_id' in event_data:
-            try:
-                r_id = event_data['removed_user_id']
-                user_info = cl.user_info_v1(r_id)
-                send_msg(thread_id, f"Goodbye @{user_info.username}... 🕊️")
-            except:
-                pass
+    global auto_replies, swipe_active, swipe_target_id, swipe_messages, AUTHORIZED_GROUPS
+    thread_id = str(message.thread_id)
+    sender_id = str(message.user_id)
+    text = (message.text or "").lower()
+
+    # --- ADMIN AUTHORIZATION ---
+    if sender_id == MY_ID:
+        if text == "/authorize":
+            if thread_id not in AUTHORIZED_GROUPS:
+                AUTHORIZED_GROUPS.append(thread_id)
+                send_msg(thread_id, f"✅ Authorized Group: {thread_id}")
+            return
+        elif text == "/deauthorize":
+            if thread_id in AUTHORIZED_GROUPS:
+                AUTHORIZED_GROUPS.remove(thread_id)
+                send_msg(thread_id, "🛑 Deauthorized.")
+            return
+
+    if thread_id not in AUTHORIZED_GROUPS:
         return
 
-    # --- TEXT COMMANDS ---
-    text = (message.text or "").lower()
-    sender_id = str(message.user_id)
+    # --- RANDOM AUTO-SWIPE LOGIC ---
+    if swipe_active and sender_id == swipe_target_id:
+        random_reply = random.choice(swipe_messages)
+        send_msg(thread_id, random_reply, reply_to_id=message.id)
 
-    for key, reply in auto_replies.items():
-        if key in text:
-            send_msg(thread_id, reply)
-
+    # --- ADMIN COMMANDS ---
     if sender_id != MY_ID:
         return
 
-    if text == "/help":
-        menu = (
-            "🤖 **PREMIUM BOT v3.2**\n\n"
-            "🔹 /ping - Status\n"
-            "🔹 /stats - Uptime\n"
-            "🔹 /funny - Joke\n"
-            "🔹 /masti - Party\n\n"
-            "🛠 **ADMIN**\n"
-            "🔸 /kick @user\n"
-            "🔸 /autoreply [key] [msg]\n"
-            "🔸 /stopreply\n"
-            "🔸 /spam @user [msg]\n"
-            "🔸 /stopspam"
-        )
-        send_msg(thread_id, menu)
-
-    elif text == "/ping":
-        send_msg(thread_id, "⚡ Bot is alive and running on GitHub Actions!")
-
-    elif text == "/stats":
-        uptime = str(datetime.now() - start_time).split('.')[0]
-        send_msg(thread_id, f"📊 Uptime: {uptime}\nTotal Msgs: {msg_count}")
-
-    elif text.startswith("/autoreply "):
+    # /swipe @user msg1 | msg2
+    if text.startswith("/swipe "):
         parts = text.split(" ", 2)
         if len(parts) == 3:
-            auto_replies[parts[1]] = parts[2]
-            send_msg(thread_id, f"✅ Auto-reply set: {parts[1]}")
+            target_username = parts[1].replace("@", "")
+            swipe_messages = [m.strip() for m in parts[2].split("|")]
+            try:
+                swipe_target_id = str(cl.user_id_from_username(target_username))
+                swipe_active = True
+                send_msg(thread_id, f"🎯 Swiping @{target_username} with {len(swipe_messages)} variants.")
+            except Exception as e:
+                send_msg(thread_id, f"❌ User lookup failed: {e}")
 
-    elif text == "/stopreply":
-        auto_replies.clear()
-        send_msg(thread_id, "🗑 Cleared all replies.")
+    elif text == "/stopswipe":
+        swipe_active = False
+        send_msg(thread_id, "✅ Swipe disabled.")
 
     elif text.startswith("/kick "):
         target = text.split(" ")[1].replace("@", "")
         try:
             t_id = cl.user_id_from_username(target)
-            # FIXED: Updated function name for newer instagrapi versions
-            cl.direct_thread_remove_participants(thread_id, [t_id])
+            # FIXED: Updated to the correct current function name
+            cl.direct_thread_remove_user(thread_id, t_id)
             send_msg(thread_id, f"🚫 Kicked @{target}")
         except Exception as e:
-            send_msg(thread_id, f"❌ Failed: {str(e)}")
+            send_msg(thread_id, f"❌ Kick Failed: {str(e)}")
 
-    elif text.startswith("/spam "):
-        if not spam_active:
-            parts = text.split(" ", 2)
-            if len(parts) == 3:
-                spam_active = True
-                threading.Thread(target=spam_logic, args=(thread_id, parts[1], parts[2])).start()
-                send_msg(thread_id, "🚀 Spamming...")
+    elif text == "/help":
+        menu = (
+            "🤖 **PREMIUM BOT v4.6**\n\n"
+            "🔹 /swipe @user msg1 | msg2 - Random replies\n"
+            "🔹 /kick @user - Remove user\n"
+            "🔹 /authorize - Enable group\n"
+            "🔹 /ping - Status"
+        )
+        send_msg(thread_id, menu)
 
-    elif text == "/stopspam":
-        spam_active = False
-        send_msg(thread_id, "🛑 Spam stopped.")
+    elif text == "/ping":
+        send_msg(thread_id, "⚡ Active.")
 
-    elif text == "/funny":
-        jokes = ["Why do programmers prefer dark mode? Because light attracts bugs.", 
-                 "I'd tell you a joke about UDP, but you might not get it."]
-        send_msg(thread_id, random.choice(jokes))
-
-    elif text == "/masti":
-        send_msg(thread_id, "🥳 Masti Mode On! ✨🕺")
-
+# ================= MAIN LOOP =================
 if __name__ == "__main__":
     login()
     while True:
         try:
-            threads = cl.direct_threads(5)
+            threads = cl.direct_threads(10)
             for thread in threads:
                 msgs = cl.direct_messages(thread.id, 3)
                 for m in msgs:
                     if m.id not in processed_msgs:
                         threading.Thread(target=handle_commands, args=(m,)).start()
                         processed_msgs.add(m.id)
-            
-            if len(processed_msgs) > 300:
-                processed_msgs.clear()
-            
+            if len(processed_msgs) > 300: processed_msgs.clear()
             time.sleep(CHECK_SPEED)
         except Exception as e:
             time.sleep(5)
