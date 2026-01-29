@@ -12,7 +12,7 @@ MY_ID = str(os.getenv("MY_ID"))
 
 # PASTE YOUR THREAD ID FROM THE URL LINK HERE
 # Example: If link is instagram.com/direct/t/12345/, put "12345"
-TARGET_GROUPS = ["340282366841710301281153074832756614682"]
+TARGET_GROUPS = ["1580227303119880"]
 
 CHECK_SPEED = 12 # Slightly slower for better stability
 # ========================================================
