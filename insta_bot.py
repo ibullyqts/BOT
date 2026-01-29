@@ -17,30 +17,28 @@ CHECK_SPEED = 15
 
 cl = Client()
 
+def log(message):
+    """Helper to print logs with timestamps."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
 def login():
     try:
         if not SESSION_ID:
-            print("❌ ERROR: SESSION_ID secret is missing!")
+            log("❌ ERROR: SESSION_ID secret is missing!")
             return False
         
-        # MANUAL BYPASS: Directly injecting the session cookie
-        # This avoids the broken 'pinned_channels_info' logic in instagrapi
+        # Manual Session Injection to bypass broken 'pinned_channels' logic
         cl.set_settings({"sessionid": SESSION_ID})
+        cl.authorization = {"sessionid": SESSION_ID}
         
-        # We manually set the authorization headers
-        cl.authorization = {
-            "sessionid": SESSION_ID,
-        }
-        
-        # Verify the session works by getting a tiny bit of data
-        # If this doesn't crash, we are successfully logged in
+        # We test the connection with a simple request
         cl.get_timeline_feed() 
-        
-        print(f"✅ MANUAL LOGIN SUCCESS | {datetime.now().strftime('%H:%M:%S')}")
+        log("✅ LOGIN SUCCESSful via Manual Injection.")
         return True
     except Exception as e:
-        print(f"⚠️ Manual Injection Warning: {e}")
-        # Even if a small check fails, we try to proceed
+        log(f"⚠️ Login Warning: {e}")
+        # We return True anyway to try and start the loop
         return True 
 
 swipe_active = False
@@ -54,15 +52,17 @@ def handle_commands(message):
     sender_id = str(message.user_id)
     text = (message.text or "").lower()
 
-    # Swipe Logic
+    # Log incoming messages
+    log(f"📩 Incoming from {sender_id}: '{text}'")
+
     if swipe_active and sender_id == swipe_target_id:
         try:
             time.sleep(random.uniform(1.5, 3.5))
             cl.direct_send(random.choice(swipe_messages), thread_ids=[thread_id], reply_to_message_id=message.id)
-            print(f"🎯 Swiped @{sender_id}")
-        except: pass
+            log(f"🎯 Successfully Swiped @{sender_id}")
+        except Exception as e:
+            log(f"⚠️ Swipe Failed: {e}")
 
-    # Admin Commands
     if sender_id == MY_ID:
         if text.startswith("/swipe "):
             parts = text.split(" ", 2)
@@ -72,36 +72,44 @@ def handle_commands(message):
                 try:
                     swipe_target_id = str(cl.user_id_from_username(target_username))
                     swipe_active = True
-                    cl.direct_send(f"🎯 Target set: @{target_username}", thread_ids=[thread_id])
-                except: pass
+                    cl.direct_send(f"🎯 Target Locked: @{target_username}", thread_ids=[thread_id])
+                    log(f"🚀 Admin Command: Target set to @{target_username}")
+                except Exception as e:
+                    log(f"❌ User lookup error: {e}")
         elif text == "/stopswipe":
             swipe_active = False
             cl.direct_send("✅ Swipe disabled.", thread_ids=[thread_id])
+            log("🛑 Admin Command: Swipe Disabled.")
 
 if __name__ == "__main__":
+    log("🏁 Starting Bot Execution...")
     if login():
-        print("🚀 Monitoring specific threads...")
+        log(f"👀 Monitoring {len(TARGET_GROUPS)} thread(s)...")
         while True:
             try:
                 for t_id in TARGET_GROUPS:
-                    # Fetch messages directly by thread ID
-                    msgs = cl.direct_messages(t_id, 2)
+                    # Fetching 2 messages at a time
+                    try:
+                        msgs = cl.direct_messages(t_id, 2)
+                    except Exception as e:
+                        if "pinned_channels_info" in str(e):
+                            continue # Ignore the library model crash
+                        log(f"⚠️ Error fetching {t_id}: {e}")
+                        continue
+
                     for m in msgs:
                         if m.id not in processed_msgs:
                             threading.Thread(target=handle_commands, args=(m,)).start()
                             processed_msgs.add(m.id)
                 
-                if len(processed_msgs) > 200: processed_msgs.clear()
+                if len(processed_msgs) > 200: 
+                    processed_msgs.clear()
+                    log("🧹 Cache Cleared.")
                 
-                # Sleep with jitter
                 time.sleep(CHECK_SPEED + random.randint(1, 5))
                 
             except Exception as e:
-                # If we hit the 'pinned_channels' error here, we just ignore it
-                if "pinned_channels_info" in str(e):
-                    time.sleep(CHECK_SPEED)
-                    continue
-                print(f"🔄 Loop Warning: {e}")
+                log(f"🔄 Loop Exception: {e}")
                 time.sleep(60) 
     else:
-        print("‼️ Could not establish session.")
+        log("‼️ Bot terminated: Could not establish session.")
