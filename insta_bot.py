@@ -50,10 +50,8 @@ def handle_commands(message):
     
     # --- FIXED WELCOME & LEAVE DETECTION ---
     if message.item_type == 'action_log':
-        # Using getattr to prevent AttributeError if event_context is missing
         event_data = getattr(message, 'event_context', {}) or getattr(message, 'extra_data', {})
         
-        # New Member Added
         u_ids = event_data.get('added_user_ids') or event_data.get('user_ids', [])
         if u_ids:
             for u_id in u_ids:
@@ -63,7 +61,6 @@ def handle_commands(message):
                 except:
                     send_msg(thread_id, "Welcome to the group! 🎉")
         
-        # Member Left or Kicked
         elif 'removed_user_id' in event_data:
             try:
                 r_id = event_data['removed_user_id']
@@ -77,18 +74,16 @@ def handle_commands(message):
     text = (message.text or "").lower()
     sender_id = str(message.user_id)
 
-    # 1. AUTO-REPLY (Everyone)
     for key, reply in auto_replies.items():
         if key in text:
             send_msg(thread_id, reply)
 
-    # 2. ADMIN-ONLY
     if sender_id != MY_ID:
         return
 
     if text == "/help":
         menu = (
-            "🤖 **PREMIUM BOT v3.1**\n\n"
+            "🤖 **PREMIUM BOT v3.2**\n\n"
             "🔹 /ping - Status\n"
             "🔹 /stats - Uptime\n"
             "🔹 /funny - Joke\n"
@@ -123,7 +118,8 @@ def handle_commands(message):
         target = text.split(" ")[1].replace("@", "")
         try:
             t_id = cl.user_id_from_username(target)
-            cl.direct_thread_remove_user(thread_id, t_id)
+            # FIXED: Updated function name for newer instagrapi versions
+            cl.direct_thread_remove_participants(thread_id, [t_id])
             send_msg(thread_id, f"🚫 Kicked @{target}")
         except Exception as e:
             send_msg(thread_id, f"❌ Failed: {str(e)}")
@@ -141,8 +137,8 @@ def handle_commands(message):
         send_msg(thread_id, "🛑 Spam stopped.")
 
     elif text == "/funny":
-        jokes = ["I'm on a whiskey diet. I've lost three days already.", 
-                 "Why did the developer go broke? Because he used up all his cache."]
+        jokes = ["Why do programmers prefer dark mode? Because light attracts bugs.", 
+                 "I'd tell you a joke about UDP, but you might not get it."]
         send_msg(thread_id, random.choice(jokes))
 
     elif text == "/masti":
