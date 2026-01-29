@@ -38,24 +38,32 @@ def send_msg(thread_id, text):
     except:
         pass
 
+def spam_logic(thread_id, target_user, msg):
+    global spam_active
+    while spam_active:
+        send_msg(thread_id, f"{target_user} {msg}")
+        time.sleep(1)
+
 def handle_commands(message):
     global auto_replies, spam_active, start_time, msg_count
     thread_id = message.thread_id
     
-    # --- WELCOME & LEAVE DETECTION ---
+    # --- FIXED WELCOME & LEAVE DETECTION ---
     if message.item_type == 'action_log':
-        event_data = message.event_context
+        # Using getattr to prevent AttributeError if event_context is missing
+        event_data = getattr(message, 'event_context', {}) or getattr(message, 'extra_data', {})
         
-        # 1. New Member Added
-        if 'user_ids' in event_data:
-            for u_id in event_data['user_ids']:
+        # New Member Added
+        u_ids = event_data.get('added_user_ids') or event_data.get('user_ids', [])
+        if u_ids:
+            for u_id in u_ids:
                 try:
                     user_info = cl.user_info_v1(u_id)
-                    send_msg(thread_id, f"Welcome @{user_info.username}! 🎉 Hope you enjoy the stay. Type /help for my commands.")
+                    send_msg(thread_id, f"Welcome @{user_info.username}! 🎉 Type /help for commands.")
                 except:
                     send_msg(thread_id, "Welcome to the group! 🎉")
         
-        # 2. Member Left or Kicked
+        # Member Left or Kicked
         elif 'removed_user_id' in event_data:
             try:
                 r_id = event_data['removed_user_id']
@@ -74,24 +82,23 @@ def handle_commands(message):
         if key in text:
             send_msg(thread_id, reply)
 
-    # 2. ADMIN-ONLY COMMANDS
+    # 2. ADMIN-ONLY
     if sender_id != MY_ID:
         return
 
     if text == "/help":
         menu = (
-            "🚀 **INSTANT BOT v3.0**\n\n"
-            "🔹 /ping - Check Status\n"
-            "🔹 /stats - Uptime & Count\n"
-            "🔹 /welcome - Manual Greeting\n"
-            "🔹 /funny - Random Joke\n"
-            "🔹 /masti - Party Mode\n\n"
-            "🛠 **ADMIN TOOLS**\n"
-            "🔸 /kick @user - Remove Member\n"
+            "🤖 **PREMIUM BOT v3.1**\n\n"
+            "🔹 /ping - Status\n"
+            "🔹 /stats - Uptime\n"
+            "🔹 /funny - Joke\n"
+            "🔹 /masti - Party\n\n"
+            "🛠 **ADMIN**\n"
+            "🔸 /kick @user\n"
             "🔸 /autoreply [key] [msg]\n"
-            "🔸 /stopreply - Clear Keys\n"
+            "🔸 /stopreply\n"
             "🔸 /spam @user [msg]\n"
-            "🔸 /stopspam - Stop Spamming"
+            "🔸 /stopspam"
         )
         send_msg(thread_id, menu)
 
@@ -100,17 +107,17 @@ def handle_commands(message):
 
     elif text == "/stats":
         uptime = str(datetime.now() - start_time).split('.')[0]
-        send_msg(thread_id, f"📊 Stats:\nUptime: {uptime}\nTotal Msgs: {msg_count}")
+        send_msg(thread_id, f"📊 Uptime: {uptime}\nTotal Msgs: {msg_count}")
 
     elif text.startswith("/autoreply "):
         parts = text.split(" ", 2)
         if len(parts) == 3:
             auto_replies[parts[1]] = parts[2]
-            send_msg(thread_id, f"✅ Auto-reply set for: {parts[1]}")
+            send_msg(thread_id, f"✅ Auto-reply set: {parts[1]}")
 
     elif text == "/stopreply":
         auto_replies.clear()
-        send_msg(thread_id, "🗑 All auto-replies cleared.")
+        send_msg(thread_id, "🗑 Cleared all replies.")
 
     elif text.startswith("/kick "):
         target = text.split(" ")[1].replace("@", "")
@@ -119,15 +126,27 @@ def handle_commands(message):
             cl.direct_thread_remove_user(thread_id, t_id)
             send_msg(thread_id, f"🚫 Kicked @{target}")
         except Exception as e:
-            send_msg(thread_id, f"❌ Failed: {e}")
+            send_msg(thread_id, f"❌ Failed: {str(e)}")
+
+    elif text.startswith("/spam "):
+        if not spam_active:
+            parts = text.split(" ", 2)
+            if len(parts) == 3:
+                spam_active = True
+                threading.Thread(target=spam_logic, args=(thread_id, parts[1], parts[2])).start()
+                send_msg(thread_id, "🚀 Spamming...")
+
+    elif text == "/stopspam":
+        spam_active = False
+        send_msg(thread_id, "🛑 Spam stopped.")
 
     elif text == "/funny":
-        jokes = ["I told my wife she was drawing her eyebrows too high. She looked surprised.", 
-                 "My boss told me to have a good day. So I went home."]
+        jokes = ["I'm on a whiskey diet. I've lost three days already.", 
+                 "Why did the developer go broke? Because he used up all his cache."]
         send_msg(thread_id, random.choice(jokes))
 
     elif text == "/masti":
-        send_msg(thread_id, "🕺💃 Party mode activated! ✨")
+        send_msg(thread_id, "🥳 Masti Mode On! ✨🕺")
 
 if __name__ == "__main__":
     login()
@@ -135,14 +154,12 @@ if __name__ == "__main__":
         try:
             threads = cl.direct_threads(5)
             for thread in threads:
-                # Checking last 3 messages to ensure system events aren't missed
                 msgs = cl.direct_messages(thread.id, 3)
                 for m in msgs:
                     if m.id not in processed_msgs:
                         threading.Thread(target=handle_commands, args=(m,)).start()
                         processed_msgs.add(m.id)
             
-            # Clean up message cache to prevent memory leak
             if len(processed_msgs) > 300:
                 processed_msgs.clear()
             
