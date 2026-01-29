@@ -7,14 +7,12 @@ from instagrapi import Client
 
 # ================= GITHUB CONFIGURATION =================
 SESSION_ID = os.getenv("SESSION_ID")
-MY_USERNAME = os.getenv("MY_USERNAME")
 MY_ID = str(os.getenv("MY_ID")) 
 
-# PASTE YOUR THREAD ID FROM THE URL LINK HERE
-# Example link: instagram.com/direct/t/3402823668...
+# PASTE YOUR THREAD ID HERE
 TARGET_GROUPS = ["340282366841710301281153074832756614682"]
 
-CHECK_SPEED = 12 
+CHECK_SPEED = 15 # Increased for long-term stability
 # ========================================================
 
 cl = Client()
@@ -27,29 +25,16 @@ processed_msgs = set()
 
 def login():
     try:
+        if not SESSION_ID:
+            print("❌ ERROR: SESSION_ID secret is missing!")
+            return False
         cl.set_settings({"sessionid": SESSION_ID})
         cl.login_by_sessionid(SESSION_ID)
-        print(f"✅ LOGIN SUCCESS | {cl.account_info().username}")
-        
-        # This part "Wakes Up" the specific threads from the link IDs
-        for t_id in TARGET_GROUPS:
-            try:
-                cl.direct_thread_by_id(t_id)
-                print(f"🔗 Thread {t_id} is Connected and Ready.")
-            except Exception as e:
-                print(f"⚠️ Warning: Could not find thread {t_id}. Check the ID. {e}")
+        print(f"✅ LOGIN SUCCESS | {datetime.now().strftime('%H:%M:%S')}")
         return True
     except Exception as e:
         print(f"❌ LOGIN ERROR: {e}")
         return False
-
-def send_msg(thread_id, text, reply_to_id=None):
-    try:
-        time.sleep(random.uniform(1, 2.5))
-        cl.direct_send(text, thread_ids=[thread_id], reply_to_message_id=reply_to_id)
-        print(f"📤 Sent reply to {thread_id}")
-    except Exception as e:
-        print(f"⚠️ Message Send Failed: {e}")
 
 def handle_commands(message):
     global swipe_active, swipe_target_id, swipe_messages
@@ -57,49 +42,53 @@ def handle_commands(message):
     sender_id = str(message.user_id)
     text = (message.text or "").lower()
 
-    # LOGGING: See if the bot even "hears" the message
-    print(f"📩 [{thread_id}] Seen: {text}")
-
-    # --- AUTO-SWIPE ---
+    # Swipe Logic
     if swipe_active and sender_id == swipe_target_id:
-        send_msg(thread_id, random.choice(swipe_messages), reply_to_id=message.id)
+        try:
+            time.sleep(random.uniform(1, 3))
+            cl.direct_send(random.choice(swipe_messages), thread_ids=[thread_id], reply_to_message_id=message.id)
+            print(f"🎯 Swiped message in {thread_id}")
+        except: pass
 
-    # --- ADMIN ONLY ---
-    if sender_id != MY_ID: return
-
-    if text.startswith("/swipe "):
-        parts = text.split(" ", 2)
-        if len(parts) == 3:
-            target_username = parts[1].replace("@", "")
-            swipe_messages = [m.strip() for m in parts[2].split("|")]
-            try:
-                swipe_target_id = str(cl.user_id_from_username(target_username))
-                swipe_active = True
-                send_msg(thread_id, f"🎯 Targeting @{target_username}")
-            except: send_msg(thread_id, "❌ User not found")
-
-    elif text == "/stopswipe":
-        swipe_active = False
-        send_msg(thread_id, "✅ Swipe disabled.")
-
-    elif text == "/ping":
-        send_msg(thread_id, "⚡ Bot is Online!")
+    # Admin Commands
+    if sender_id == MY_ID:
+        if text.startswith("/swipe "):
+            parts = text.split(" ", 2)
+            if len(parts) == 3:
+                target_username = parts[1].replace("@", "")
+                swipe_messages = [m.strip() for m in parts[2].split("|")]
+                try:
+                    swipe_target_id = str(cl.user_id_from_username(target_username))
+                    swipe_active = True
+                    cl.direct_send(f"🎯 Targeting @{target_username}", thread_ids=[thread_id])
+                except: pass
+        elif text == "/stopswipe":
+            swipe_active = False
+            cl.direct_send("✅ Swipe disabled.", thread_ids=[thread_id])
 
 if __name__ == "__main__":
     if login():
+        print("🚀 Bot is now in 24/7 Monitoring Mode...")
         while True:
             try:
                 for t_id in TARGET_GROUPS:
-                    # Directly fetch 2 latest messages
                     msgs = cl.direct_messages(t_id, 2)
                     for m in msgs:
                         if m.id not in processed_msgs:
                             threading.Thread(target=handle_commands, args=(m,)).start()
                             processed_msgs.add(m.id)
                 
+                # Prevent cache from eating memory
                 if len(processed_msgs) > 200: processed_msgs.clear()
-                time.sleep(CHECK_SPEED + random.randint(1, 4))
+                
+                # Print heartbeat every few minutes so GitHub knows we are active
+                if random.randint(1, 10) == 5:
+                    print(f"💓 Heartbeat: Bot still running at {datetime.now().strftime('%H:%M:%S')}")
+
+                time.sleep(CHECK_SPEED + random.randint(1, 5))
                 
             except Exception as e:
-                print(f"🔄 Loop Error: {e}")
-                time.sleep(60)
+                print(f"🔄 Loop Warning: {e}. Retrying in 60s...")
+                time.sleep(60) 
+    else:
+        print("‼️ Script ended due to login failure.")
