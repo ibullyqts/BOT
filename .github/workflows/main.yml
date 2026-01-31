@@ -1,30 +1,68 @@
-name: 24/7 Instagram Bot
+name: Phoenix Mod Bot Manager
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:      # Button to start manually
+  repository_dispatch:    # Trigger for auto-restart
+    types: [restart_bot]
   schedule:
-    - cron: '0 */6 * * *' # Restarts every 6 hours automatically
-  workflow_dispatch: # Allows manual start
+    - cron: '0 */6 * * *' # Backup restart every 6 hours
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
-  build:
+  run-mod-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 355  # Kill job just before 6 hours to allow restart logic
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      - name: Install Dependencies
-        run: pip install -r requirements.txt
+    - name: Install Google Chrome
+      run: |
+        # Download and install the latest stable Chrome
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
 
-      - name: Run Bot
-        env:
-          SESSION_ID: ${{ secrets.SESSION_ID }}
-          MY_ID: ${{ secrets.MY_ID }}
-          MY_USERNAME: ${{ secrets.MY_USERNAME }}
-        run: python insta_bot.py
+    - name: Install Dependencies
+      run: |
+        pip install selenium
+
+    - name: 🛡️ Run Phoenix Mod Bot
+      id: bot_process
+      continue-on-error: true  # Ensures the restart happens even if the bot hits an error
+      env:
+        INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
+        TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
+        # MESSAGES secret is not strictly needed for Mod Bot, but kept for compatibility
+        MESSAGES: ${{ secrets.MESSAGES }}
+      run: python main.py
+
+    - name: 🔄 The Lazarus Protocol (Auto-Restart)
+      if: always()  # Runs no matter what happen
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "⚠️ Shift finished. Initiating handover..."
+        
+        # 🛡️ SHORT DELAY: 30 seconds
+        # Mod bots need high uptime, so we keep the gap short.
+        echo "💤 Taking a quick 30s breather..."
+        sleep 30
+        
+        # 🔄 DYNAMIC RESTART
+        # Finds the current workflow ID and triggers it again
+        echo "🔄 Fetching current workflow ID..."
+        WORKFLOW_ID=$(gh run view ${{ github.run_id }} --json workflowDatabaseId --jq '.workflowDatabaseId')
+        
+        echo "🚀 Restarting Workflow ID: $WORKFLOW_ID"
+        gh workflow run $WORKFLOW_ID
